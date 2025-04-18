@@ -67,10 +67,17 @@ class FileTransferService extends ChangeNotifier {
       // 下载文件
       app.get('/files/<fileName>', (shelf.Request request, String fileName) async {
         try {
-          // 解码URL编码的文件名
-          final decodedFileName = Uri.decodeComponent(fileName);
+          // 解码URL编码的文件名，确保中文和特殊字符正确处理
+          String decodedFileName;
+          try {
+            decodedFileName = Uri.decodeComponent(fileName);
+          } catch (e) {
+            print('解码文件名失败: $e，使用原始文件名');
+            decodedFileName = fileName;
+          }
           final normalizedRequestName = _normalizeFileName(decodedFileName);
-          print('服务器收到文件请求: $decodedFileName (标准化: $normalizedRequestName)');
+          print('服务器收到文件请求: $fileName');
+          print('解码后: $decodedFileName (标准化: $normalizedRequestName)');
           
           // 使用标准化名称进行匹配
           final matches = _model.selectedFiles.where((file) {
@@ -103,7 +110,7 @@ class FileTransferService extends ChangeNotifier {
             body: fileBytes,
             headers: {
               'Content-Type': 'application/octet-stream',
-              'Content-Disposition': 'attachment; filename="$normalizedRequestName"',
+              'Content-Disposition': 'attachment; filename*=UTF-8\'\'${Uri.encodeComponent(normalizedRequestName)}',
               'Content-Length': '$fileSize',
               'Cache-Control': 'no-cache',
               'Access-Control-Allow-Origin': '*',
@@ -241,12 +248,23 @@ class FileTransferService extends ChangeNotifier {
       
       try {
         // 使用同步HTTP请求而非流式传输
-        // 重要：对文件名进行URL编码，确保特殊字符能被正确处理
-        final encodedFileName = Uri.encodeComponent(fileName);
+        // 重要：对文件名进行URL编码，确保中文和特殊字符能被正确处理
+        // 先确保文件名是解码状态，然后再进行编码，避免重复编码
+        String fileNameToEncode = fileName;
+        try {
+          if (fileNameToEncode.contains('%')) {
+            fileNameToEncode = Uri.decodeComponent(fileNameToEncode);
+          }
+        } catch (e) {
+          print('解码文件名失败: $e，使用原始文件名');
+        }
+        
+        final encodedFileName = Uri.encodeComponent(fileNameToEncode);
         final uri = Uri.parse('${_model.serverUrl}/files/$encodedFileName');
         
         print('尝试下载文件: $uri');
         print('文件将保存为: $filePath');
+        print('原始文件名: $fileName, 编码后: $encodedFileName');
         
         final response = await http.get(uri);
         
@@ -330,7 +348,7 @@ class FileTransferService extends ChangeNotifier {
     notifyListeners();
   }
   
-  // 标准化文件名，使比较更可靠
+  // 标准化文件名，使比较更可靠，并正确处理中文和特殊字符
   String _normalizeFileName(String fileName) {
     // 移除路径信息，只保留文件名
     String name = fileName;
@@ -340,8 +358,16 @@ class FileTransferService extends ChangeNotifier {
     if (name.contains('\\')) {
       name = name.split('\\').last;
     }
-    // 移除URL编码
-    name = Uri.decodeComponent(name);
+    // 确保正确解码URL编码的字符，包括中文和特殊字符
+    try {
+      // 有时文件名可能已经被解码，所以我们需要检查
+      if (name.contains('%')) {
+        name = Uri.decodeComponent(name);
+      }
+    } catch (e) {
+      print('解码文件名失败: $e，使用原始文件名');
+      // 如果解码失败，使用原始文件名
+    }
     return name;
   }
   
