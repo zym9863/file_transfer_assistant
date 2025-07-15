@@ -62,7 +62,7 @@ class MyApp extends StatelessWidget {
               )),
             ),
           ),
-          cardTheme: const CardTheme(
+          cardTheme: const CardThemeData(
             color: Colors.white,
             elevation: 6,
             margin: EdgeInsets.symmetric(vertical: 8, horizontal: 4),
