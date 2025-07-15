@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.3'
+        channel: 'stable'
+        
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Get Flutter dependencies
+      run: flutter pub get
+      
+    - name: Generate Flutter app icons
+      run: flutter pub run flutter_launcher_icons:main
+      
+    - name: Build Windows exe
+      run: |
+        flutter build windows --release
+        
+    - name: Build Android APK (split per ABI)
+      run: |
+        flutter build apk --release --split-per-abi
+        
+    - name: Get version from pubspec.yaml
+      id: get_version
+      run: |
+        $version = Select-String -Path "pubspec.yaml" -Pattern "version: (.*)" | ForEach-Object { $_.Matches.Groups[1].Value }
+        echo "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "Version: $version"
+        
+    - name: Create release directory
+      run: |
+        New-Item -ItemType Directory -Path "release" -Force
+        
+    - name: Copy Windows exe to release directory
+      run: |
+        Copy-Item -Path "build\windows\x64\runner\Release\*" -Destination "release\" -Recurse
+        Compress-Archive -Path "release\*" -DestinationPath "release\file_transfer_assistant_windows.zip"
+        
+    - name: Copy Android APKs to release directory
+      run: |
+        Copy-Item -Path "build\app\outputs\flutter-apk\*.apk" -Destination "release\"
+        
+    - name: List release files
+      run: |
+        Get-ChildItem -Path "release" -Name
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+        name: Release ${{ github.event.inputs.tag || github.ref_name }}
+        body: |
+          ## 文件传输助手 - ${{ github.event.inputs.tag || github.ref_name }}
+          
+          ### 🎉 新版本发布
+          
+          **Windows 版本:**
+          - `file_transfer_assistant_windows.zip` - Windows 可执行文件
+          
+          **Android 版本:**
+          - `app-arm64-v8a-release.apk` - 64位ARM设备 (推荐)
+          - `app-armeabi-v7a-release.apk` - 32位ARM设备
+          - `app-x86_64-release.apk` - 64位x86设备
+          
+          ### 📱 安装说明
+          
+          **Windows:**
+          1. 下载 `file_transfer_assistant_windows.zip`
+          2. 解压到任意目录
+          3. 运行 `file_transfer_assistant.exe`
+          
+          **Android:**
+          1. 根据你的设备类型下载对应的APK文件
+          2. 在手机上安装APK文件
+          3. 如果是首次安装，需要允许"未知来源"的应用安装
+          
+          ### 🔧 使用方法
+          1. 确保Windows和Android设备在同一局域网内
+          2. 在Windows上运行程序，会显示二维码
+          3. 用Android设备扫描二维码即可连接
+          4. 开始传输文件
+          
+          ---
+          
+          *自动生成的发布版本*
+        draft: false
+        prerelease: false
+        files: |
+          release/file_transfer_assistant_windows.zip
+          release/*.apk
+        token: ${{ secrets.GITHUB_TOKEN }}
