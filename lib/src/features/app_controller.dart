@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cross_file/cross_file.dart';
@@ -8,12 +8,15 @@ import 'package:path/path.dart' as p;
 
 import '../core/app_models.dart';
 import '../core/protocol.dart';
+import '../services/app_settings_store.dart';
 import '../services/device_identity_store.dart';
 import '../services/discovery_service.dart';
 import '../services/file_transfer_service.dart';
 import '../services/trusted_devices_store.dart';
 
-final appControllerProvider = StateNotifierProvider<AppController, AppState>((ref) {
+final appControllerProvider = StateNotifierProvider<AppController, AppState>((
+  ref,
+) {
   final controller = AppController();
   ref.onDispose(controller.dispose);
   return controller;
@@ -73,7 +76,9 @@ class AppState {
     Object? statusMessage = _sentinel,
   }) {
     return AppState(
-      identity: identical(identity, _sentinel) ? this.identity : identity as DeviceIdentity?,
+      identity: identical(identity, _sentinel)
+          ? this.identity
+          : identity as DeviceIdentity?,
       devices: devices ?? this.devices,
       trustedDevices: trustedDevices ?? this.trustedDevices,
       transfers: transfers ?? this.transfers,
@@ -81,11 +86,17 @@ class AppState {
       receiverPort: receiverPort ?? this.receiverPort,
       activePin: activePin ?? this.activePin,
       connectionPin: connectionPin ?? this.connectionPin,
-      saveDirectory: identical(saveDirectory, _sentinel) ? this.saveDirectory : saveDirectory as String?,
+      saveDirectory: identical(saveDirectory, _sentinel)
+          ? this.saveDirectory
+          : saveDirectory as String?,
       isBootstrapping: isBootstrapping ?? this.isBootstrapping,
       isDropActive: isDropActive ?? this.isDropActive,
-      selectedDeviceId: identical(selectedDeviceId, _sentinel) ? this.selectedDeviceId : selectedDeviceId as String?,
-      statusMessage: identical(statusMessage, _sentinel) ? this.statusMessage : statusMessage as String?,
+      selectedDeviceId: identical(selectedDeviceId, _sentinel)
+          ? this.selectedDeviceId
+          : selectedDeviceId as String?,
+      statusMessage: identical(statusMessage, _sentinel)
+          ? this.statusMessage
+          : statusMessage as String?,
     );
   }
 }
@@ -96,39 +107,48 @@ class AppController extends StateNotifier<AppState> {
   AppController({
     DeviceIdentityStore? identityStore,
     TrustedDevicesStore? trustedDevicesStore,
+    AppSettingsStore? appSettingsStore,
     DiscoveryService? discoveryService,
     FileTransferService? fileTransferService,
     bool autoStart = true,
-  })  : _identityStore = identityStore ?? DeviceIdentityStore(),
-        _trustedDevicesStore = trustedDevicesStore ?? TrustedDevicesStore(),
-        _discoveryService = discoveryService ?? DiscoveryService(),
-        _fileTransferService = fileTransferService ?? FileTransferService(),
-        super(const AppState()) {
+  }) : _identityStore = identityStore ?? DeviceIdentityStore(),
+       _trustedDevicesStore = trustedDevicesStore ?? TrustedDevicesStore(),
+       _appSettingsStore = appSettingsStore ?? AppSettingsStore(),
+       _discoveryService = discoveryService ?? DiscoveryService(),
+       _fileTransferService = fileTransferService ?? FileTransferService(),
+       super(const AppState()) {
     if (autoStart) unawaited(_bootstrap());
   }
 
   AppController.test(AppState initialState)
-      : _identityStore = DeviceIdentityStore(),
-        _trustedDevicesStore = TrustedDevicesStore(),
-        _discoveryService = DiscoveryService(),
-        _fileTransferService = FileTransferService(),
-        super(initialState);
+    : _identityStore = DeviceIdentityStore(),
+      _trustedDevicesStore = TrustedDevicesStore(),
+      _appSettingsStore = AppSettingsStore(),
+      _discoveryService = DiscoveryService(),
+      _fileTransferService = FileTransferService(),
+      super(initialState);
 
   final DeviceIdentityStore _identityStore;
   final TrustedDevicesStore _trustedDevicesStore;
+  final AppSettingsStore _appSettingsStore;
   final DiscoveryService _discoveryService;
   final FileTransferService _fileTransferService;
   StreamSubscription<List<DiscoveredDevice>>? _discoverySubscription;
+  Timer? _historySaveDebounce;
 
   Future<void> _bootstrap() async {
     try {
       final identity = await _identityStore.load();
       final trustedDevices = await _trustedDevicesStore.load();
+      final saveDirectory = await _appSettingsStore.loadSaveDirectory();
+      final transferHistory = await _appSettingsStore.loadTransferHistory();
       final activePin = PairingProtocol.generatePin();
       state = state.copyWith(
         identity: identity,
         trustedDevices: trustedDevices,
+        transfers: transferHistory,
         activePin: activePin,
+        saveDirectory: saveDirectory,
         isBootstrapping: false,
         statusMessage: 'Ready on ${identity.platform}',
       );
@@ -142,10 +162,14 @@ class AppController extends StateNotifier<AppState> {
       );
       state = state.copyWith(receiverPort: receiverPort);
       _discoverySubscription = _discoveryService.devices.listen((devices) {
-        final selectedStillExists = devices.any((device) => device.id == state.selectedDeviceId);
+        final selectedStillExists = devices.any(
+          (device) => device.id == state.selectedDeviceId,
+        );
         state = state.copyWith(
           devices: devices,
-          selectedDeviceId: selectedStillExists ? state.selectedDeviceId : (devices.isEmpty ? null : devices.first.id),
+          selectedDeviceId: selectedStillExists
+              ? state.selectedDeviceId
+              : (devices.isEmpty ? null : devices.first.id),
         );
       });
       await _discoveryService.start(
@@ -154,7 +178,10 @@ class AppController extends StateNotifier<AppState> {
         trustedIds: trustedDevices.map((device) => device.id).toSet(),
       );
     } catch (error) {
-      state = state.copyWith(isBootstrapping: false, statusMessage: error.toString());
+      state = state.copyWith(
+        isBootstrapping: false,
+        statusMessage: error.toString(),
+      );
     }
   }
 
@@ -179,17 +206,26 @@ class AppController extends StateNotifier<AppState> {
   }
 
   Future<void> pickSaveDirectory() async {
-    final directory = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose receive folder');
+    final directory = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Choose receive folder',
+    );
     if (directory == null) return;
+    await _appSettingsStore.saveSaveDirectory(directory);
     _fileTransferService.updateSaveDirectory(directory);
-    state = state.copyWith(saveDirectory: directory, statusMessage: 'Receive folder updated');
+    state = state.copyWith(
+      saveDirectory: directory,
+      statusMessage: 'Receive folder updated',
+    );
   }
 
   Future<void> sendPickedFiles() async {
     final device = state.selectedDevice;
     final identity = state.identity;
     if (device == null || identity == null) return;
-    final result = await FilePicker.platform.pickFiles(allowMultiple: true, withData: false);
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+      withData: false,
+    );
     if (result == null) return;
     for (final picked in result.files) {
       final path = picked.path;
@@ -202,10 +238,15 @@ class AppController extends StateNotifier<AppState> {
     final device = state.selectedDevice;
     final identity = state.identity;
     if (device == null || identity == null) return;
-    final root = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Choose folder to send');
+    final root = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Choose folder to send',
+    );
     if (root == null) return;
     final rootDirectory = Directory(root);
-    await for (final entity in rootDirectory.list(recursive: true, followLinks: false)) {
+    await for (final entity in rootDirectory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
       if (entity is! File) continue;
       final relative = p.relative(entity.path, from: root);
       await _sendFile(identity, device, entity, relative);
@@ -228,18 +269,38 @@ class AppController extends StateNotifier<AppState> {
     final device = state.selectedDevice;
     final identity = state.identity;
     final path = item.filePath;
-    if (device == null || identity == null || path == null || item.direction != TransferDirection.sending) return;
-    await _sendFile(identity, device, File(path), item.relativePath ?? p.basename(path));
+    if (device == null ||
+        identity == null ||
+        path == null ||
+        item.direction != TransferDirection.sending) {
+      return;
+    }
+    await _sendFile(
+      identity,
+      device,
+      File(path),
+      item.relativePath ?? p.basename(path),
+    );
   }
 
   Future<void> removeTrustedDevice(String id) async {
     await _trustedDevicesStore.remove(id);
     final devices = await _trustedDevicesStore.load();
-    state = state.copyWith(trustedDevices: devices, statusMessage: 'Trusted device removed');
-    _discoveryService.updateTrustedIds(devices.map((device) => device.id).toSet());
+    state = state.copyWith(
+      trustedDevices: devices,
+      statusMessage: 'Trusted device removed',
+    );
+    _discoveryService.updateTrustedIds(
+      devices.map((device) => device.id).toSet(),
+    );
   }
 
-  Future<void> _sendFile(DeviceIdentity identity, DiscoveredDevice device, File file, String relativePath) async {
+  Future<void> _sendFile(
+    DeviceIdentity identity,
+    DiscoveredDevice device,
+    File file,
+    String relativePath,
+  ) async {
     await _fileTransferService.sendFile(
       identity: identity,
       device: device,
@@ -255,8 +316,13 @@ class AppController extends StateNotifier<AppState> {
   Future<void> _trustDevice(TrustedDevice device) async {
     await _trustedDevicesStore.trust(device);
     final devices = await _trustedDevicesStore.load();
-    state = state.copyWith(trustedDevices: devices, statusMessage: 'Trusted ${device.name}');
-    _discoveryService.updateTrustedIds(devices.map((entry) => entry.id).toSet());
+    state = state.copyWith(
+      trustedDevices: devices,
+      statusMessage: 'Trusted ${device.name}',
+    );
+    _discoveryService.updateTrustedIds(
+      devices.map((entry) => entry.id).toSet(),
+    );
   }
 
   void _upsertTransfer(TransferItem item) {
@@ -268,10 +334,30 @@ class AppController extends StateNotifier<AppState> {
       transfers.insert(0, item);
     }
     state = state.copyWith(transfers: transfers);
+    _scheduleTransferHistorySave(immediate: _isTerminal(item.status));
+  }
+
+  void _scheduleTransferHistorySave({required bool immediate}) {
+    _historySaveDebounce?.cancel();
+    if (immediate) {
+      unawaited(_appSettingsStore.saveTransferHistory(state.transfers));
+      return;
+    }
+    _historySaveDebounce = Timer(const Duration(milliseconds: 750), () {
+      unawaited(_appSettingsStore.saveTransferHistory(state.transfers));
+    });
+  }
+
+  bool _isTerminal(TransferStatus status) {
+    return status == TransferStatus.complete ||
+        status == TransferStatus.failed ||
+        status == TransferStatus.canceled;
   }
 
   @override
   void dispose() {
+    _historySaveDebounce?.cancel();
+    unawaited(_appSettingsStore.saveTransferHistory(state.transfers));
     unawaited(_discoverySubscription?.cancel());
     _discoveryService.dispose();
     unawaited(_fileTransferService.stopReceiver());
