@@ -1,5 +1,5 @@
 name: file_transfer_assistant
-description: "一个用于Windows和Android之间文件传输的Flutter应用"
+description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -19,7 +19,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.7.2
+  sdk: ^3.9.2
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -34,31 +34,8 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  
-  # 网络连接与文件传输
-  shelf: ^1.4.1
-  shelf_router: ^1.1.4
-  http: ^1.2.0
-  path_provider: ^2.1.2
-  file_picker: ^9.0.2
-  permission_handler: ^11.3.0
-  device_info_plus: ^10.0.0
-  
-  # 二维码生成与扫描
-  qr_flutter: ^4.1.0
-  mobile_scanner: ^3.5.7
-  
-  # 状态管理
-  provider: ^6.1.1
-  
-  # 网络信息
-  network_info_plus: ^4.1.0
-  
-  # 通知
-  flutter_local_notifications: ^19.1.0
 
 dev_dependencies:
-  flutter_launcher_icons: ^0.14.3
   flutter_test:
     sdk: flutter
 
@@ -69,27 +46,11 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
-flutter_launcher_icons:
-  android: true
-  ios: true
-  web:
-    generate: true
-    image_path: "assets/image_fx.jpg"
-    background_color: "#hexcode"
-    theme_color: "#hexcode"
-  windows:
-    generate: true
-    image_path: "assets/image_fx.jpg"
-    icon_size: 48 
-  image_path: "assets/image_fx.jpg"
-
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
 flutter:
-  assets:
-      - assets/
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
