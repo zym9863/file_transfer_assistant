@@ -192,7 +192,7 @@ class FileTransferService {
       final output = File(p.join(directory, relativePath));
       await output.parent.create(recursive: true);
       sink = output.openWrite();
-      item = TransferItem(
+      var receivingItem = TransferItem(
         id: const Uuid().v4(),
         fileName: header.fileName,
         filePath: output.path,
@@ -203,7 +203,8 @@ class FileTransferService {
         deviceName: envelope.senderName,
         createdAt: DateTime.now(),
       );
-      _onTransferChanged?.call(item);
+      item = receivingItem;
+      _onTransferChanged?.call(receivingItem);
 
       final digestSink = AccumulatorSink<Digest>();
       final hashInput = sha256.startChunkedConversion(digestSink);
@@ -217,11 +218,12 @@ class FileTransferService {
         hashInput.add(chunk);
         received += chunk.length;
         final elapsed = DateTime.now().difference(started).inMilliseconds.clamp(1, 1 << 31);
-        item = item.copyWith(
+        receivingItem = receivingItem.copyWith(
           transferredBytes: received,
           speedBytesPerSecond: received * 1000 / elapsed,
         );
-        _onTransferChanged?.call(item);
+        item = receivingItem;
+        _onTransferChanged?.call(receivingItem);
       }
       await sink.flush();
       await sink.close();
@@ -230,11 +232,13 @@ class FileTransferService {
       if (received != header.totalBytes || receivedHash != header.sha256Hex) {
         throw FileTransferException('Checksum mismatch');
       }
-      _onTransferChanged?.call(item.copyWith(
+      final completedItem = receivingItem.copyWith(
         transferredBytes: header.totalBytes,
         status: TransferStatus.complete,
         completedAt: DateTime.now(),
-      ));
+      );
+      item = completedItem;
+      _onTransferChanged?.call(completedItem);
       await socket.close();
       await reader.cancel();
     } catch (error) {
