@@ -1,4 +1,6 @@
-﻿# File Transfer Assistant
+[English](README.md) | [简体中文](README-zh.md)
+
+# File Transfer Assistant
 
 A Flutter app for direct LAN file transfer between Windows and Android devices.
 
